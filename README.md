@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # StudyMate AI
 
 **Study Smarter. Ask Better. Learn Faster.**
@@ -325,3 +326,6 @@ See **DEPLOYMENT.md** for the full step-by-step guide
 
 **StudyMate AI — Your AI-powered study companion.**
 Developed by **Ayesha Amjad Ali**.
+=======
+# StudyMate-AI
+>>>>>>> 36a00203561985046a214412dc27ecab892191b0
