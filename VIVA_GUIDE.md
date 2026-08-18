@@ -264,3 +264,311 @@ any session in the database.
 Because JWTs are stateless — the server keeps no session. Deleting the token from
 localStorage means the browser can no longer prove who it is, which is exactly what
 logging out means.
+
+---
+---
+
+# Part 2 — The new study features
+
+Added after the first version. The original 19 answers above are still correct;
+this part explains everything that is new.
+
+---
+
+## 20. Project Overview (short version for the examiner)
+
+StudyMate AI is a study platform, not a general chatbot. A student uploads their own
+lecture notes into a **subject**, and then chats with an AI tutor that answers from
+those notes. On top of that they can generate quizzes, take exams, revise with
+flashcards, read a summary, and track their progress and weak topics. Two guardrails
+keep it study-focused and safe.
+
+---
+
+## 21. Frontend
+
+React 18 built with Vite. Pages: Landing (with login), Register, Dashboard, Chat,
+**Study Tools**, Subjects, Subject Detail. Routing is `react-router-dom`, HTTP calls
+go through one file (`services/api.js`) using axios, and the login token is kept in
+`localStorage`. Styling is plain CSS in `index.css` — dark theme with gradients and
+glass panels. No state-management library is used; each page keeps its own `useState`.
+
+---
+
+## 22. Backend
+
+FastAPI (Python). Each feature area is one router file inside `backend/routers/`.
+The AI and RAG code lives in `backend/rag/`. `backend/guardrails.py` holds the two
+safety/relevance checks. Everything is plain functions — no classes, no agents.
+
+---
+
+## 23. MongoDB
+
+Five collections now: `users`, `subjects`, `documents`, `conversations` and the new
+`quizzes`. A quiz document stores the generated questions **including** the correct
+answer and the explanation, the student's answers, the score, and whether it was
+submitted. Because the correct answers live on the server, the browser never sees
+them until after Submit.
+
+---
+
+## 24. Authentication (all three ways)
+
+```
+Email + password        Google              Facebook
+      │                    │                    │
+      │              ID token from        access token from
+      │              Google popup         Facebook popup
+      │                    │                    │
+      └────────────┬───────┴────────────────────┘
+                   ▼
+             FastAPI backend
+      (verifies password OR verifies the provider token)
+                   ▼
+        find or create the user in MongoDB
+                   ▼
+              OUR OWN JWT
+                   ▼
+        Protected StudyMate API routes
+```
+
+The important point: **the JWT is always ours.** Google and Facebook are only used to
+prove who the person is. After that moment, every request is authenticated exactly the
+same way, with the same `get_current_user` dependency. Email/password login was not
+changed at all.
+
+---
+
+## 25. JWT
+
+Unchanged from Part 1: a signed token containing the user id (`sub`) and an expiry
+(`exp`). The frontend stores it and sends `Authorization: Bearer <token>` with every
+request.
+
+---
+
+## 26. Google OAuth — how it actually works here
+
+1. The browser loads Google Identity Services and shows the "Continue with Google"
+   button (`SocialLogin.jsx`).
+2. The student signs in with Google. Google gives the **browser** an ID token.
+3. The browser sends only that token to `POST /auth/google`.
+4. The backend calls `https://oauth2.googleapis.com/tokeninfo` to verify it, and
+   checks that `aud` (the audience) equals our `GOOGLE_CLIENT_ID` — this proves the
+   token was issued for *our* app and not copied from somewhere else.
+5. The backend finds the user by email, or creates a new one, and returns our JWT.
+
+Only the public **client ID** is used in the frontend. The client secret stays in the
+backend `.env`. (This flow verifies an ID token, so the secret is not strictly needed —
+it is kept in the environment for the standard server-side flow.)
+
+---
+
+## 27. Facebook OAuth — how it actually works here
+
+1. The browser loads the Facebook JS SDK and `FB.login()` opens the popup.
+2. Facebook gives the browser an **access token**.
+3. The browser sends it to `POST /auth/facebook`.
+4. The backend calls `graph.facebook.com/debug_token` using
+   `FACEBOOK_CLIENT_ID|FACEBOOK_CLIENT_SECRET` and checks `is_valid` **and** that
+   `app_id` matches our app.
+5. It then reads the profile from `graph.facebook.com/me` and returns our JWT.
+
+Here the app secret really is required, and it is only ever used on the backend.
+Facebook does not always give an email, so if it is missing we store a placeholder
+address and match the user by their Facebook id instead.
+
+**Avoiding duplicate accounts:** `find_or_create_social_user()` looks the student up by
+email first, then by provider id. So signing in with Google and later with the same
+email does not create two accounts.
+
+---
+
+## 28. Study Guardrail (Feature 1)
+
+**Why:** StudyMate should not answer "write me a poem" — it is a study tool.
+
+**How, in `guardrails.py`:**
+
+1. The similarity search has already run. If the closest chunk from the student's own
+   notes is very close (cosine distance ≤ **0.55**), the question is obviously about
+   the subject → allowed, and no extra AI call happens.
+2. Otherwise we ask GPT-4o-mini one tiny question: *"Is this question about studying
+   <subject>? Answer YES or NO."* The prompt includes a few examples.
+3. NO → the student gets:
+   *"I'm here to help you study your selected subject. Please ask a question related to
+   your subject or uploaded study material."*
+
+**Why two thresholds?** `RELEVANCE_LIMIT = 0.75` in `chain.py` answers *"is this chunk
+useful as context?"*. `STRONG_MATCH_LIMIT = 0.55` in `guardrails.py` answers *"is this
+question definitely about the subject?"* — a stricter question needs a stricter number.
+A loose match alone is not proof, so in that case we still ask the model.
+
+**Why not keywords?** Because "What is DNS?" contains none of the words "network
+security", yet it clearly belongs to that subject. The embedding search and the yes/no
+check both understand meaning, not spelling.
+
+---
+
+## 29. Safety Guardrail (Feature 2)
+
+Runs **first**, before retrieval and before any answer is generated. `guardrails.py`
+matches the message against a list of self-harm phrases ("kill myself", "suicide",
+"end my life", "want to die", …) with a regular expression. If it matches, the student
+gets a short supportive message and the request never reaches GPT-4o-mini, so no
+method, step or instruction can ever be produced.
+
+Whole phrases are used, not single words, so ordinary security wording like "kill
+chain" or "terminate a TCP connection" is not blocked by mistake.
+
+---
+
+## 30. Teach Me / Tutor Mode (Feature 3)
+
+The same `/chat` route with `mode: "teach"`. When that flag is set, one extra system
+message is added to the prompt asking for four fixed sections:
+
+```
+Simple Explanation
+Important Points
+Example
+Quick Check
+```
+
+No new AI architecture — one extra instruction in the same prompt.
+
+---
+
+## 31. Quiz Generator (Feature 4)
+
+1. `POST /study/quiz` takes a sample of the subject's chunks from ChromaDB.
+2. One GPT-4o-mini call with `response_format={"type": "json_object"}` returns JSON:
+   question, four options, `correct_index`, `explanation`, and a short `topic`.
+3. The whole thing is saved in the `quizzes` collection.
+4. The response to the browser contains **only** topic, question and options.
+5. `POST /study/quiz/{id}/submit` compares the answers with the stored
+   `correct_index`, returns the score, and shows the correct answer and explanation for
+   every wrong question.
+
+Asking for JSON means we get usable data straight away instead of text we would have
+to parse ourselves.
+
+---
+
+## 32. Exam Mode (Feature 5)
+
+Exactly the same code as the quiz, with `kind: "exam"` and 10 questions by default.
+The frontend uses the same `QuizRunner` component with a different label. Nothing is
+revealed until Submit. There was no reason to write the same screen twice.
+
+---
+
+## 33. Flashcards (Feature 6)
+
+`GET /study/flashcards` asks GPT-4o-mini for JSON `{"cards": [{front, back}]}` built
+from the subject's chunks. The React component keeps two pieces of state — which card
+is showing and whether it is flipped — and the buttons are Previous, Flip and Next.
+
+---
+
+## 34. Study Summary (Feature 7)
+
+`GET /study/summary` sends the subject's chunks with a prompt that forces four markdown
+headings: **Main Concepts**, **Important Definitions**, **Key Points**,
+**Exam-Focused Notes**. The prompt says "use ONLY the study material below", so the
+summary comes from the notes and not from general knowledge.
+
+---
+
+## 35. Showing RAG to the student (Feature 8)
+
+Every AI answer now carries a `status`:
+
+| status | meaning | what the student sees |
+| ------ | ------- | --------------------- |
+| `rag` | answered from the uploaded notes | "Based on your uploaded study material" + `Source: file.pdf` |
+| `general` | answered from general knowledge | normal bubble |
+| `off_topic` | blocked by the study guardrail | amber "Study guardrail" badge |
+| `safety` | blocked by the safety guardrail | amber "Safety guardrail" badge |
+
+`sources` and `status` are also saved with the message in MongoDB, so reopening an old
+chat still shows where the answer came from. This makes RAG visible during the demo.
+
+---
+
+## 36. Progress Dashboard (Feature 9)
+
+`GET /study/progress` returns:
+
+- **Questions Asked** — counted by looping over the student's conversations and
+  counting messages with `role == "user"`.
+- **Quizzes Completed** — submitted quizzes in the `quizzes` collection.
+- **Average Score** — the mean percentage of those quizzes.
+- **Uploaded Documents** — a `count_documents` on the documents collection.
+- **Weak Topics** — see below.
+
+Every single query filters on `user_id`, so one student can never see another
+student's progress.
+
+---
+
+## 37. Weak Topics (Feature 10)
+
+`find_weak_topics()` loops through the student's submitted quizzes, and for every
+question where the chosen answer was not the correct one it adds 1 to a counter for
+that question's `topic`. The topics are then sorted by how often they were missed and
+the top 5 are returned.
+
+**Practice Weak Topics** sends `practice_weak_topics: true` to `/study/quiz`. Instead
+of taking a general sample of the material, the backend runs the normal similarity
+search using the weak topic names as the query, so the new questions come from the
+parts of the notes the student keeps getting wrong. This is the existing RAG system
+being reused for a new purpose.
+
+---
+
+## 38. Deployment
+
+- **Frontend → Vercel** (already deployed). Needs `VITE_API_URL`, and
+  `VITE_GOOGLE_CLIENT_ID` / `VITE_FACEBOOK_APP_ID` if social login is used.
+- **Backend → FastAPI Cloud** (already deployed). Needs the existing variables plus
+  the four new OAuth ones, and `CORS_ORIGINS` must contain the Vercel URL.
+- **Database → MongoDB Atlas.** No migration is needed — the new `quizzes` collection
+  is created automatically the first time a quiz is generated.
+
+---
+
+## Extra questions the examiner may ask about the new features
+
+**Why did you put the guardrails in a separate file?**
+So the safety and relevance rules are in one obvious place instead of being buried
+inside the chat route. It also makes them easy to test on their own.
+
+**Doesn't the study guardrail cost an extra OpenAI call every time?**
+No. If the question matches the uploaded notes closely, the check returns immediately
+with no AI call. The extra call only happens when the match is weak or the subject has
+no documents yet, and it asks for a single word so it is very cheap.
+
+**What if the guardrail wrongly blocks a real study question?**
+The threshold `STRONG_MATCH_LIMIT` and the examples in the prompt can be adjusted. The
+code also fails open: if the check itself errors, the question is allowed through
+rather than blocked.
+
+**How do you stop the student seeing the quiz answers early?**
+The correct answers are never sent to the browser. `QuizResponse` only contains topic,
+question and options — the `correct_index` stays in MongoDB until Submit.
+
+**Could a student submit someone else's quiz?**
+No. The submit route looks up the quiz with `{"_id": quiz_id, "user_id": current_user}`,
+so another user's quiz simply is not found (404).
+
+**Is the safety check perfect?**
+No — it is a phrase list, so unusual wording could get past it. It is a reasonable
+first layer for a student project. A production system would add a moderation model as
+a second layer. It is important to say this honestly rather than claim it is complete.
+
+**Why does the safety check run before the study guardrail?**
+Because a safety problem matters more than an off-topic problem. If someone writes
+"I want to die", the right response is the supportive message — not "please ask about
+your subject".

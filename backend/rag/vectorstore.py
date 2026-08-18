@@ -75,6 +75,29 @@ def search_chunks(user_id: str, subject_id: str, question: str, top_k: int = 4):
     return found
 
 
+def get_subject_chunks(user_id: str, subject_id: str, limit: int = 12) -> list:
+    """
+    Get some of a subject's stored chunks without asking a question.
+
+    The quiz, flashcard and summary features need a general sample of the study
+    material rather than an answer to one question, so they use this instead of
+    the similarity search.
+    """
+    results = collection.get(
+        where={"$and": [{"user_id": user_id}, {"subject_id": subject_id}]},
+        limit=limit,
+        include=["documents", "metadatas"],
+    )
+
+    documents = results.get("documents", []) or []
+    metadatas = results.get("metadatas", []) or []
+
+    chunks = []
+    for text, meta in zip(documents, metadatas):
+        chunks.append({"text": text, "filename": meta.get("filename", "document")})
+    return chunks
+
+
 def delete_document_chunks(document_id: str):
     """Remove one document's chunks (used when a document or subject is deleted)."""
     collection.delete(where={"document_id": document_id})

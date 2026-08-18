@@ -4,6 +4,7 @@ import { Sparkles } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
+import SocialLogin from "../components/SocialLogin.jsx";
 import { readError, registerUser } from "../services/api.js";
 import { saveSession } from "../services/auth.js";
 
@@ -91,6 +92,8 @@ export default function Register() {
             {loading ? "Creating account..." : "Create Account"}
           </button>
         </form>
+
+        <SocialLogin />
 
         <p className="auth-footer">
           Already have an account? <Link to="/">Sign in</Link>

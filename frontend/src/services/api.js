@@ -37,6 +37,10 @@ export const registerUser = (name, email, password) =>
 export const loginUser = (email, password) =>
   api.post("/auth/login", { email, password });
 
+// Social login: we send the token from Google/Facebook and get OUR JWT back.
+export const loginWithGoogle = (token) => api.post("/auth/google", { token });
+export const loginWithFacebook = (token) => api.post("/auth/facebook", { token });
+
 // ---------- Subjects ----------
 export const getSubjects = () => api.get("/subjects");
 export const getSubject = (id) => api.get(`/subjects/${id}`);
@@ -59,12 +63,34 @@ export const getConversation = (id) => api.get(`/conversations/${id}`);
 export const deleteConversation = (id) => api.delete(`/conversations/${id}`);
 
 // ---------- Chat ----------
-export const sendChatMessage = (message, conversationId, subjectId) =>
+// mode is "chat" normally, or "teach" when the Teach Me button is used.
+export const sendChatMessage = (message, conversationId, subjectId, mode = "chat") =>
   api.post("/chat", {
     message,
     conversation_id: conversationId || null,
     subject_id: subjectId || null,
+    mode,
   });
+
+// ---------- Study tools ----------
+export const createQuiz = (subjectId, count, kind, practiceWeakTopics = false) =>
+  api.post("/study/quiz", {
+    subject_id: subjectId,
+    count,
+    kind,
+    practice_weak_topics: practiceWeakTopics,
+  });
+
+export const submitQuiz = (quizId, answers) =>
+  api.post(`/study/quiz/${quizId}/submit`, { answers });
+
+export const getFlashcards = (subjectId, count = 8) =>
+  api.get(`/study/flashcards?subject_id=${subjectId}&count=${count}`);
+
+export const getSummary = (subjectId) =>
+  api.get(`/study/summary?subject_id=${subjectId}`);
+
+export const getProgress = () => api.get("/study/progress");
 
 // ---------- Dashboard ----------
 export const getStats = () => api.get("/stats");

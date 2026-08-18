@@ -1,6 +1,13 @@
 // Top navigation bar shown on every page after login.
 
-import { BookOpen, LayoutDashboard, LogOut, MessagesSquare, Sparkles } from "lucide-react";
+import {
+  BookOpen,
+  GraduationCap,
+  LayoutDashboard,
+  LogOut,
+  MessagesSquare,
+  Sparkles,
+} from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 
 import { getUser, logout } from "../services/auth.js";
@@ -32,6 +39,10 @@ export default function Navbar() {
           <NavLink to="/chat" className="nav-link">
             <MessagesSquare size={17} />
             <span>Chat</span>
+          </NavLink>
+          <NavLink to="/study" className="nav-link">
+            <GraduationCap size={17} />
+            <span>Study Tools</span>
           </NavLink>
           <NavLink to="/subjects" className="nav-link">
             <BookOpen size={17} />

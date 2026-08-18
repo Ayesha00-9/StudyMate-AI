@@ -1,7 +1,14 @@
 # Step 5 of RAG: build the prompt and ask GPT-4o-mini for the answer.
-# This file also contains the very simple rule that decides
-# whether a question should use the uploaded study material or not.
+#
+# The order every chat message goes through is:
+#
+#   question -> safety guardrail -> retrieval -> study guardrail -> GPT-4o-mini -> answer
+#
+# The retrieval happens before the study guardrail because the guardrail uses the
+# search result as its first (and best) signal: if the question already matches the
+# student's own notes, it is clearly about the subject.
 
+import guardrails
 from config import CHAT_MODEL
 from rag.embeddings import openai_client
 from rag.vectorstore import search_chunks
@@ -18,8 +25,25 @@ HISTORY_LIMIT = 8
 SYSTEM_PROMPT = (
     "You are StudyMate AI, a friendly study assistant for students. "
     "Explain topics clearly and simply, use short paragraphs and examples. "
+    "Only answer study-related questions. "
     "If study material is provided, base your answer on it and mention the file name."
 )
+
+# Extra instructions used by the "Teach Me" button (tutor mode).
+TEACH_INSTRUCTION = """Teach this topic to a student using exactly these four sections,
+with these headings and nothing else:
+
+**Simple Explanation**
+A short, clear explanation in plain words.
+
+**Important Points**
+- three to five bullet points
+
+**Example**
+One concrete example.
+
+**Quick Check**
+One short question for the student to think about (do not answer it)."""
 
 
 def build_context_block(chunks: list) -> str:
@@ -30,23 +54,41 @@ def build_context_block(chunks: list) -> str:
     return "\n\n".join(parts)
 
 
-def answer_question(question: str, history: list, user_id: str, subject_id: str = None):
-    """
-    Returns (answer_text, used_rag, sources).
+def retrieve_context(user_id: str, subject_id: str, question: str) -> list:
+    """Similarity search inside one subject, keeping only the close-enough chunks."""
+    if not subject_id:
+        return []
+    found = search_chunks(user_id, subject_id, question)
+    return [chunk for chunk in found if chunk["distance"] <= RELEVANCE_LIMIT]
 
-    Simple decision rule:
-      - No subject selected  -> normal AI chat.
-      - Subject selected     -> search that subject's documents.
-            relevant chunks found -> answer from the documents (RAG)
-            nothing relevant      -> tell the student it is not in their material,
-                                     then still answer from general knowledge.
-    """
-    retrieved = []
-    if subject_id:
-        found = search_chunks(user_id, subject_id, question)
-        retrieved = [c for c in found if c["distance"] <= RELEVANCE_LIMIT]
 
+def answer_question(question, history, user_id, subject_id=None,
+                    subject_name="", mode="chat"):
+    """
+    Returns (answer_text, used_rag, sources, status).
+
+    status tells the frontend what happened:
+      "safety"    -> blocked by the safety guardrail
+      "off_topic" -> blocked by the study guardrail
+      "rag"       -> answered from the uploaded study material
+      "general"   -> answered from general knowledge
+    """
+    # ---- 1. Safety guardrail (always first) ----
+    if guardrails.is_self_harm(question):
+        return guardrails.SAFETY_MESSAGE, False, [], "safety"
+
+    # ---- 2. Retrieval from this subject's documents ----
+    retrieved = retrieve_context(user_id, subject_id, question)
+
+    # ---- 3. Study guardrail ----
+    if not guardrails.is_study_related(question, subject_name, retrieved):
+        return guardrails.OFF_TOPIC_MESSAGE, False, [], "off_topic"
+
+    # ---- 4. Build the prompt ----
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    if mode == "teach":
+        messages.append({"role": "system", "content": TEACH_INSTRUCTION})
 
     # Recent conversation so the chatbot remembers what was said before.
     for message in history[-HISTORY_LIMIT:]:
@@ -79,6 +121,7 @@ def answer_question(question: str, history: list, user_id: str, subject_id: str 
             )
         messages.append({"role": "user", "content": question})
 
+    # ---- 5. GPT-4o-mini writes the answer ----
     response = openai_client.chat.completions.create(
         model=CHAT_MODEL,
         messages=messages,
@@ -88,7 +131,8 @@ def answer_question(question: str, history: list, user_id: str, subject_id: str 
 
     # Unique file names used for the answer, shown in the UI.
     sources = sorted({chunk["filename"] for chunk in retrieved})
-    return answer, bool(retrieved), sources
+    status = "rag" if retrieved else "general"
+    return answer, bool(retrieved), sources, status
 
 
 def make_title(first_message: str) -> str:

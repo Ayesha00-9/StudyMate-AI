@@ -17,6 +17,7 @@ from routers import auth as auth_router
 from routers import chat as chat_router
 from routers import conversations as conversations_router
 from routers import documents as documents_router
+from routers import study as study_router
 from routers import subjects as subjects_router
 
 app = FastAPI(
@@ -61,6 +62,7 @@ app.include_router(subjects_router.router)
 app.include_router(documents_router.router)
 app.include_router(conversations_router.router)
 app.include_router(chat_router.router)
+app.include_router(study_router.router)
 app.include_router(stats_router)
 
 

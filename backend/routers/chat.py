@@ -6,7 +6,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
 
 from auth import get_current_user
-from database import conversations_collection
+from database import conversations_collection, subjects_collection
 from models import ChatRequest, ChatResponse
 from rag.chain import answer_question, make_title
 from routers.subjects import to_object_id
@@ -49,16 +49,29 @@ def chat(data: ChatRequest, current_user: dict = Depends(get_current_user)):
 
     conversation_id = str(conversation["_id"])
 
-    # The subject sent with the message wins, otherwise use the conversation's subject.
-    subject_id = data.subject_id or conversation.get("subject_id")
+    # Use exactly what the sidebar has selected right now.
+    # (We must NOT fall back to the conversation's saved subject, otherwise
+    # switching the dropdown back to "General chat" would be ignored.)
+    subject_id = data.subject_id
 
-    # --- 2. ask the AI ---
+    # The subject name is used by the study guardrail to judge the question.
+    subject_name = ""
+    if subject_id:
+        subject = subjects_collection.find_one(
+            {"_id": to_object_id(subject_id), "user_id": current_user["id"]}
+        )
+        if subject:
+            subject_name = subject["name"]
+
+    # --- 2. ask the AI (guardrails run inside answer_question) ---
     try:
-        answer, used_rag, sources = answer_question(
+        answer, used_rag, sources, status = answer_question(
             question=question,
             history=conversation["messages"],
             user_id=current_user["id"],
             subject_id=subject_id,
+            subject_name=subject_name,
+            mode=data.mode,
         )
     except Exception as error:
         raise HTTPException(status_code=500, detail=f"AI error: {error}")
@@ -69,6 +82,8 @@ def chat(data: ChatRequest, current_user: dict = Depends(get_current_user)):
         "role": "assistant",
         "content": answer,
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "sources": sources,   # kept so old chats still show where the answer came from
+        "status": status,
     }
 
     update = {
@@ -86,4 +101,5 @@ def chat(data: ChatRequest, current_user: dict = Depends(get_current_user)):
         conversation_id=conversation_id,
         used_rag=used_rag,
         sources=sources,
+        status=status,
     )

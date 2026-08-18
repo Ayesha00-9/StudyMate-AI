@@ -14,7 +14,10 @@ from config import JWT_ALGORITHM, JWT_EXPIRE_HOURS, JWT_SECRET
 from database import users_collection
 
 # Tells FastAPI to read the "Authorization: Bearer <token>" header.
-security_scheme = HTTPBearer()
+# auto_error=False so that a MISSING header reaches our own code instead of
+# FastAPI answering 403. We always answer 401, which is what the frontend
+# listens for when it decides to send the student back to the login page.
+security_scheme = HTTPBearer(auto_error=False)
 
 
 def hash_password(plain_password: str) -> str:
@@ -49,6 +52,10 @@ def get_current_user(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired token",
     )
+
+    # No Authorization header at all (for example after logging out).
+    if credentials is None:
+        raise invalid
 
     try:
         payload = jwt.decode(

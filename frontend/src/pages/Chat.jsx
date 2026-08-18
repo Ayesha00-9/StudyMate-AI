@@ -1,6 +1,6 @@
 // The chat page: conversation sidebar, messages and the input box.
 
-import { MessageSquarePlus, Send, Sparkles, Trash2 } from "lucide-react";
+import { GraduationCap, MessageSquarePlus, Send, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -15,9 +15,9 @@ import {
 } from "../services/api.js";
 
 const SUGGESTIONS = [
-  "Explain TCP in simple words.",
+  "What is network security?",
   "What is normalization according to my notes?",
-  "Give me 5 exam questions on this topic.",
+  "Explain TCP/IP.",
   "Summarise my uploaded lecture in bullet points.",
 ];
 
@@ -33,6 +33,8 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  // Teach Me mode: the backend answers with Explanation / Points / Example / Quick Check.
+  const [teachMode, setTeachMode] = useState(false);
 
   const bottomRef = useRef(null);
 
@@ -116,8 +118,13 @@ export default function Chat() {
     setSending(true);
 
     try {
-      const response = await sendChatMessage(question, activeId, subjectId || null);
-      const { answer, conversation_id, sources } = response.data;
+      const response = await sendChatMessage(
+        question,
+        activeId,
+        subjectId || null,
+        teachMode ? "teach" : "chat"
+      );
+      const { answer, conversation_id, sources, status } = response.data;
 
       setMessages((previous) => [
         ...previous,
@@ -125,6 +132,7 @@ export default function Chat() {
           role: "assistant",
           content: answer,
           sources,
+          status,
           created_at: new Date().toISOString(),
         },
       ]);
@@ -133,6 +141,10 @@ export default function Chat() {
       loadConversations();
     } catch (err) {
       setError(readError(err));
+      // The message was never saved on the server, so take it back off the
+      // screen and put the text back in the box for the student to retry.
+      setMessages((previous) => previous.slice(0, -1));
+      setInput(question);
     } finally {
       setSending(false);
     }
@@ -206,7 +218,7 @@ export default function Chat() {
             <div className="sub">
               {activeSubject
                 ? `Answering from "${activeSubject.name}" documents`
-                : "General mode - no study material used"}
+                : "General study mode - no subject selected"}
             </div>
           </div>
           {activeSubject && (
@@ -226,8 +238,8 @@ export default function Chat() {
                 How can I help you <span className="gradient-text">study</span> today?
               </h2>
               <p>
-                Ask anything, or pick a subject on the left to get answers from your own
-                uploaded notes.
+                Ask a study question, or pick a subject on the left to get answers from
+                your own uploaded notes.
               </p>
               <div className="suggestions">
                 {SUGGESTIONS.map((suggestion) => (
@@ -248,6 +260,7 @@ export default function Chat() {
                 role={message.role}
                 content={message.content}
                 sources={message.sources || []}
+                status={message.status || ""}
               />
             ))
           )}
@@ -272,11 +285,27 @@ export default function Chat() {
 
         <div className="composer">
           {error && <div className="alert">{error}</div>}
+
+          {/* Teach Me: same chat, but the AI replies as a tutor with
+              Simple Explanation / Important Points / Example / Quick Check. */}
+          <button
+            className={`teach-toggle ${teachMode ? "on" : ""}`}
+            onClick={() => setTeachMode(!teachMode)}
+            title="Answer like a tutor: explanation, points, example and a quick check question"
+          >
+            <GraduationCap size={15} />
+            Teach Me {teachMode ? "· on" : ""}
+          </button>
+
           <div className="composer-box">
             <textarea
               rows={1}
               value={input}
-              placeholder="Ask StudyMate AI anything..."
+              placeholder={
+                teachMode
+                  ? "Which topic should I teach you? e.g. Teach me TCP/IP"
+                  : "Ask a question about your subject..."
+              }
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleKeyDown}
             />

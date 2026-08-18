@@ -4,6 +4,7 @@ import { BrainCircuit, FileText, Loader2, MessagesSquare, Sparkles } from "lucid
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
+import SocialLogin from "../components/SocialLogin.jsx";
 import { loginUser, readError } from "../services/api.js";
 import { saveSession } from "../services/auth.js";
 
@@ -105,6 +106,8 @@ export default function Landing() {
               {loading ? "Signing in..." : "Sign In"}
             </button>
           </form>
+
+          <SocialLogin />
 
           <p className="auth-footer">
             New here? <Link to="/register">Create an account</Link>

@@ -13,6 +13,8 @@ users_collection = db["users"]
 subjects_collection = db["subjects"]
 documents_collection = db["documents"]
 conversations_collection = db["conversations"]
+# Quizzes and exams the student has generated, with their results.
+quizzes_collection = db["quizzes"]
 
 
 def create_indexes():

@@ -9,6 +9,7 @@ import Chat from "./pages/Chat.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Landing from "./pages/Landing.jsx";
 import Register from "./pages/Register.jsx";
+import Study from "./pages/Study.jsx";
 import SubjectDetail from "./pages/SubjectDetail.jsx";
 import Subjects from "./pages/Subjects.jsx";
 import { isLoggedIn } from "./services/auth.js";
@@ -84,6 +85,16 @@ export default function App() {
           <ProtectedRoute>
             <WithNavbar>
               <Chat />
+            </WithNavbar>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/study"
+        element={
+          <ProtectedRoute>
+            <WithNavbar>
+              <Study />
             </WithNavbar>
           </ProtectedRoute>
         }

@@ -5,11 +5,19 @@ import {
   FileText,
   MessagesSquare,
   Plus,
+  Target,
+  TrendingUp,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { getConversations, getStats, getSubjects, readError } from "../services/api.js";
+import {
+  getConversations,
+  getProgress,
+  getStats,
+  getSubjects,
+  readError,
+} from "../services/api.js";
 import { getUser } from "../services/auth.js";
 
 export default function Dashboard() {
@@ -23,18 +31,35 @@ export default function Dashboard() {
   });
   const [subjects, setSubjects] = useState([]);
   const [conversations, setConversations] = useState([]);
+  const [progress, setProgress] = useState(null);
   const [error, setError] = useState("");
 
   // Load everything once when the page opens.
   useEffect(() => {
     async function loadDashboard() {
       try {
-        const [statsResponse, subjectsResponse, conversationsResponse] =
-          await Promise.all([getStats(), getSubjects(), getConversations()]);
+        // Promise.allSettled instead of Promise.all: if one of the four calls
+        // fails, the other three still fill the page instead of the dashboard
+        // going completely blank.
+        const [statsResult, subjectsResult, conversationsResult, progressResult] =
+          await Promise.allSettled([
+            getStats(),
+            getSubjects(),
+            getConversations(),
+            getProgress(),
+          ]);
 
-        setStats(statsResponse.data);
-        setSubjects(subjectsResponse.data);
-        setConversations(conversationsResponse.data.slice(0, 5));
+        if (statsResult.status === "fulfilled") setStats(statsResult.value.data);
+        if (subjectsResult.status === "fulfilled") setSubjects(subjectsResult.value.data);
+        if (conversationsResult.status === "fulfilled") {
+          setConversations(conversationsResult.value.data.slice(0, 5));
+        }
+        if (progressResult.status === "fulfilled") setProgress(progressResult.value.data);
+
+        // Show a message only if something actually failed.
+        const failed = [statsResult, subjectsResult, conversationsResult, progressResult]
+          .find((result) => result.status === "rejected");
+        if (failed) setError(readError(failed.reason));
       } catch (err) {
         setError(readError(err));
       }
@@ -79,6 +104,70 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
+
+      {/* ---- Study progress (Features 9 and 10) ---- */}
+      {progress && (
+        <>
+          <div className="section-head">
+            <h2>Study Progress</h2>
+          </div>
+
+          <div className="grid-2">
+            <div className="card-3d">
+              <div className="stat-icon">
+                <TrendingUp size={20} />
+              </div>
+              <div className="progress-rows">
+                <div className="progress-row">
+                  <span>Questions Asked</span>
+                  <strong>{progress.questions_asked}</strong>
+                </div>
+                <div className="progress-row">
+                  <span>Quizzes Completed</span>
+                  <strong>{progress.quizzes_completed}</strong>
+                </div>
+                <div className="progress-row">
+                  <span>Average Score</span>
+                  <strong>{progress.average_score}%</strong>
+                </div>
+                <div className="progress-row">
+                  <span>Uploaded Documents</span>
+                  <strong>{progress.total_documents}</strong>
+                </div>
+              </div>
+              {/* Simple bar showing the average quiz score */}
+              <div className="progress-bar">
+                <div style={{ width: `${progress.average_score}%` }} />
+              </div>
+            </div>
+
+            <div className="card-3d">
+              <div className="stat-icon">
+                <Target size={20} />
+              </div>
+              <h3>Needs Practice</h3>
+              {progress.weak_topics.length === 0 ? (
+                <p style={{ color: "var(--text-dim)", fontSize: 14 }}>
+                  No weak topics yet. Take a quiz to find out where to focus.
+                </p>
+              ) : (
+                <ol className="weak-list">
+                  {progress.weak_topics.map((topic) => (
+                    <li key={topic}>{topic}</li>
+                  ))}
+                </ol>
+              )}
+              <Link
+                to="/study?tab=quiz&weak=1"
+                className="btn btn-primary btn-sm"
+                style={{ marginTop: 16 }}
+              >
+                <Target size={14} /> Practice Weak Topics
+              </Link>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ---- Subjects ---- */}
       <div className="section-head">
