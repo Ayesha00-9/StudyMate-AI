@@ -124,19 +124,26 @@ export default function SocialLogin() {
     }
   }, []);
 
+  async function completeFacebookLogin(accessToken) {
+    try {
+      finishLogin(await loginWithFacebook(accessToken));
+    } catch (err) {
+      setError(readError(err));
+    }
+  }
+
   function handleFacebookClick() {
     if (!window.FB) {
       setError("Facebook login is still loading, please try again.");
       return;
     }
+    // Facebook's SDK only accepts a plain (non-async) function here - passing
+    // an async function directly makes the SDK throw internally. So we keep
+    // this callback synchronous and do the async work in a helper below.
     window.FB.login(
-      async (fbResponse) => {
+      (fbResponse) => {
         if (!fbResponse.authResponse) return; // the user closed the popup
-        try {
-          finishLogin(await loginWithFacebook(fbResponse.authResponse.accessToken));
-        } catch (err) {
-          setError(readError(err));
-        }
+        completeFacebookLogin(fbResponse.authResponse.accessToken);
       },
       { scope: "public_profile,email" }
     );
